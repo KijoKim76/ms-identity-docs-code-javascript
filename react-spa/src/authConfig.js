@@ -13,9 +13,12 @@ import { LogLevel } from "@azure/msal-browser";
 
 export const msalConfig = {
     auth: {
-        clientId: "Enter_the_Application_Id_Here",
-        authority: "https://login.microsoftonline.com/Enter_the_Tenant_Info_Here",
+        clientId: "42dd6dfb-42b3-450e-9e77-1fc601f9de59",
+        authority: "https://login.microsoftonline.com/common",  // Multi-tenant and MSA
         redirectUri: "http://localhost:3000",
+        // clientId: "Enter_the_Application_Id_Here",
+        // authority: "https://login.microsoftonline.com/Enter_the_Tenant_Info_Here",
+        // redirectUri: "http://localhost:3000",
     },
     cache: {
         cacheLocation: "sessionStorage", // This configures where your cache will be stored
@@ -64,4 +67,12 @@ export const loginRequest = {
  */
 export const graphConfig = {
     graphMeEndpoint: "https://graph.microsoft.com/v1.0/me",
+};
+
+export const edgefieldAuthRequest = {
+    scopes: ["api://42dd6dfb-42b3-450e-9e77-1fc601f9de59/Epso.User.Global"]
+};
+
+export const edgefieldAuthConfig = {
+    edgefieldHomeEndpoint: "https://aipm-epso-authtest01.azure-api.net/api/edgefield-home",
 };

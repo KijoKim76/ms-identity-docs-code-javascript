@@ -1,5 +1,4 @@
-import { graphConfig } from "./authConfig";
-
+import { edgefieldAuthConfig, graphConfig } from "./authConfig";
 /**
  * Attaches a given access token to a MS Graph API call. Returns information about the user
  * @param accessToken 
@@ -16,6 +15,27 @@ export async function callMsGraph(accessToken) {
     };
 
     return fetch(graphConfig.graphMeEndpoint, options)
+        .then(response => response.json())
+        .catch(error => console.log(error));
+}
+
+
+/**
+ * Attaches a given access token to a Edgefield APIM API call. Returns information about the user
+ * @param accessToken 
+ */
+export async function callEdgefieldAPI(accessToken) {
+    const headers = new Headers();
+    const bearer = `Bearer ${accessToken}`;
+
+    headers.append("Authorization", bearer);
+
+    const options = {
+        method: "GET",
+        headers: headers
+    };
+
+    return fetch(edgefieldAuthConfig.edgefieldHomeEndpoint , options)
         .then(response => response.json())
         .catch(error => console.log(error));
 }

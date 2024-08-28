@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 
 import { PageLayout } from './components/PageLayout';
-import { loginRequest } from './authConfig';
+import { edgefieldAuthRequest, loginRequest} from './authConfig';
 import { callMsGraph } from './graph';
 import { ProfileData } from './components/ProfileData';
+
 
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from '@azure/msal-react';
 import './App.css';
