@@ -30,15 +30,33 @@ const ProfileContent = () => {
             });
     }
 
+    
+    function RequestEdgeField() {
+        // Silently acquires an access token which is then attached to a request for MS Graph data
+        instance
+            .acquireTokenSilent({
+                ...loginRequest,
+                account: accounts[0],
+            })
+            .then((response) => {
+                callMsGraph(response.accessToken).then((response) => setGraphData(response));
+            });
+    }
+
     return (
         <>
             <h5 className="profileContent">Welcome {accounts[0].name}</h5>
             {graphData ? (
                 <ProfileData graphData={graphData} />
             ) : (
+                <>
                 <Button variant="secondary" onClick={RequestProfileData}>
                     Request Profile
                 </Button>
+                <Button variant="primary" onClick={RequestEdgeField}>
+                    Edgefield Access Permission Check
+                </Button>
+                </>
             )}
         </>
     );
