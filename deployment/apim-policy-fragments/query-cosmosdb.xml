@@ -1,0 +1,54 @@
+<fragment>
+    <set-variable name="tokenOid" value="@(context.Request.Headers.GetValueOrDefault("Authorization","").AsJwt().Claims["oid"].FirstOrDefault())" />
+    <set-variable name="tokenTid" value="@(context.Request.Headers.GetValueOrDefault("Authorization","").AsJwt().Claims["tid"].FirstOrDefault())" />
+    <!-- Use APIM's MI to request for token to access Cosmos DB -->
+    <authentication-managed-identity resource="https://john-edgefield-db.documents.azure.com" output-token-variable-name="cosmosdb-access-token" ignore-error="false" />
+    <!-- Requesting Cosmos DB for authorization-->
+    <send-request mode="new" response-variable-name="dbResp" timeout="10" ignore-error="false">
+        <set-url>https://my-cosmos-db.documents.azure.com:443/dbs/epsocopilot/colls/users/docs</set-url>
+        <set-method>POST</set-method>
+        <set-header name="Authorization" exists-action="override">
+            <value>@("type=aad&ver=1.0&sig=" + (string)context.Variables["cosmosdb-access-token"])</value>
+        </set-header>
+        <set-header name="Content-Type" exists-action="override">
+            <value>application/query+json</value>
+        </set-header>
+        <set-header name="x-ms-version" exists-action="override">
+            <value>2018-12-31</value>
+        </set-header>
+        <set-header name="x-ms-documentdb-query-enablecrosspartition" exists-action="override">
+            <value>true</value>
+        </set-header>
+        <set-body>@{
+            return string.Format(
+                "{{\"query\": \"SELECT * FROM c WHERE c.oid = @oid AND c.tid = @tid\", \"parameters\": [{{\"name\": \"@oid\", \"value\": \"{0}\"}}, {{\"name\": \"@tid\", \"value\": \"{1}\"}}]}}",
+                context.Variables["tokenOid"], context.Variables["tokenTid"]
+            );
+        }</set-body>
+    </send-request>
+    <!-- Check result and return whether user found -->
+    <choose>
+        <when condition="@(((IResponse)context.Variables["dbResp"]).StatusCode != 200)">
+            <return-response>
+                <set-status code="500" reason="Internal server error" />
+                <set-header name="x-ms-apim-error" exists-action="append">
+                    <value>@($"APIM query Cosmos DB error: (sub status code: {((IResponse)context.Variables["dbResp"]).StatusCode})")</value>
+                </set-header>
+            </return-response>
+        </when>
+        <otherwise>
+            <set-variable name="userFound" value="@{
+                var respObj = ((IResponse)context.Variables["dbResp"]).Body.As<JObject>();
+                return (int)respObj["_count"] > 0;
+            }" />
+        </otherwise>
+    </choose>
+    <choose>
+        <when condition="@((bool)context.Variables["userFound"] == false)">
+            <return-response>
+                <set-status code="403" reason="Forbidden" />
+                <set-body>{"error": "user_not_found", "details": "User not found"}</set-body>
+            </return-response>
+        </when>
+    </choose>
+</fragment>

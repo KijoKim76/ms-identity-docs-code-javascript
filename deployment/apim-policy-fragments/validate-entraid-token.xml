@@ -1,0 +1,50 @@
+<fragment>
+    <set-variable name="tid" value="@(context.Request.Headers.GetValueOrDefault("Authorization","").AsJwt()?.Claims.GetValueOrDefault("tid", ""))" />
+    <trace source="all.apis.policy" severity="information">
+        <message>@($"Received tid from aad: {context.Variables["tid"]}")</message>
+    </trace>
+    <!-- Make sure tid exists -->
+    <choose>
+        <when condition="@(string.IsNullOrEmpty((string)context.Variables["tid"]))">
+            <return-response>
+                <set-status code="401" reason="Unauthorized" />
+                <set-header name="x-ms-error" exists-action="append">
+                    <value>Tenant identifier is missing</value>
+                </set-header>
+                <set-body>{"statusCode": 401, "message": "Tenant identifier is missing"} </set-body>
+            </return-response>
+        </when>
+    </choose>
+    <!-- Validate token -->
+    <validate-azure-ad-token tenant-id="@((string)context.Variables["tid"])">
+        <!-- One of the Exposed API under app registration -->
+        <audiences>
+            <audience>api://42dd6dfb-42b3-450e-9e77-1fc601f9de59</audience>
+        </audiences>
+        <!-- App ID is required in this section, or it won't be MISE compliant. See
+                https://eng.ms/docs/cloud-ai-platform/devdiv/serverless-paas-balam/serverless-paas-vikr/api-management/api-management-team-docs/first-party/features/mise-compliance
+        -->
+        <backend-application-ids>
+            <application-id>42dd6dfb-42b3-450e-9e77-1fc601f9de59</application-id>
+        </backend-application-ids>
+        <required-claims>
+            <claim name="oid" />
+            <claim name="tid" />
+        </required-claims>
+    </validate-azure-ad-token>
+    <!-- TODO: Query User Mgmt API to validate OID and TID -->
+    <!-- Get oid and tid from validated token -->
+    <set-variable name="tokenOid" value="@(context.Request.Headers.GetValueOrDefault("Authorization","").AsJwt().Claims["oid"].FirstOrDefault())" />
+    <set-variable name="tokenTid" value="@(context.Request.Headers.GetValueOrDefault("Authorization","").AsJwt().Claims["tid"].FirstOrDefault())" />
+    <!-- DEBUG: Return oid and tid in response headers -->
+    <return-response>
+        <set-status code="200" reason="OK" />
+        <set-body>
+            @{
+                var oid = context.Variables.GetValueOrDefault<string>("tokenOid");
+                var tid = context.Variables.GetValueOrDefault<string>("tokenTid");
+                return $"{{\"oid\": \"{oid}\", \"tid\": \"{tid}\"}}";
+            }
+        </set-body>
+    </return-response>
+</fragment>

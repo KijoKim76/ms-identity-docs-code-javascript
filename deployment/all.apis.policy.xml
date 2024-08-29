@@ -1,0 +1,73 @@
+<policies>
+    <inbound>
+        <set-variable name="traceparent" value="@(context.Request.Headers.GetValueOrDefault("Traceparent", "no-traceparent"))" />
+        <trace source="all.apis.policy" severity="information">
+            <message>@($"Received request: {context.Request.Method} {context.Request.OriginalUrl.Path} ({(string)context.Variables["traceparent"]})")</message>
+            <metadata name="Traceparent" value="@((string)context.Variables["traceparent"])" />
+        </trace>
+
+        <!-- Set cosmosdb endpoint 
+            __COSMOSDB_ENDPOINT__ : https://epso-apimauth-cosmosdb-test.documents.azure.com:443/
+            __APIM_USER_IDENTITY_CLIENT_ID__ : 823cce1b-17d1-4a0a-bf8d-8d65c85df337, epso-apimauth-umid, User managed identity - create one and add to APIM 
+        -->
+        <set-variable name="cosmosdb-endpoint" value="__COSMOSDB_ENDPOINT__" />
+
+        <!-- Get access token of APIM's user identity to access cosmosdb -->
+        <authentication-managed-identity resource="@((string)context.Variables["cosmosdb-endpoint"])" client-id="__APIM_USER_IDENTITY_CLIENT_ID__" output-token-variable-name="msi-access-token-for-cosmos-db" />
+
+        <!-- Calculate the hash value of the token, save it as a cache key -->
+        <set-variable name="_user_cache_key" value="@(Convert.ToBase64String(SHA512.Create().ComputeHash(Encoding.UTF8.GetBytes(context.Request.Headers.GetValueOrDefault("Authorization", "")))))" />
+
+        <!-- Try to get the cached context from the cache key -->
+        <cache-lookup-value key="@((string)context.Variables["_user_cache_key"])" default-value="" variable-name="user-str" />
+
+        <!-- If not found, get the context from the backend service -->
+        <choose>
+            <when condition="@(string.IsNullOrEmpty((string)context.Variables["user-str"]))">
+                <trace source="all.apis.policy" severity="information">
+                    <message>@($"Tenant context is not found in cache, key: {(string)context.Variables["_user_cache_key"]}, continue to valid authorization header and get from backend")</message>
+                </trace>
+
+                <include-fragment fragment-id="validate-authorization-header-and-get-tenant-context" />
+
+                <!-- Save in cache -->
+                <cache-store-value key="@((string)context.Variables["_user_cache_key"])" value="@(JsonConvert.SerializeObject(context.Variables["user"]))" duration="60" />
+            </when>
+
+            <!-- If found in cache, use the value from the cache -->
+            <otherwise>
+                <set-variable name="user" value="@(JObject.Parse((string)context.Variables["user-str"]))" />
+                <trace source="all.apis.policy" severity="information">
+                    <message>@($"Found tenant context in cache, key: {(string)context.Variables["_user_cache_key"]}, tid: {(string)((JObject)context.Variables["user"])["tid"]}")</message>
+                </trace>
+            </otherwise>
+        </choose>
+
+        <!-- Dont need authentication header any more, to avoid this credential be forwared to backend, remove it. -->
+        <set-header name="Authorization" exists-action="delete" />
+
+        <!-- Set certify-as-tid -->
+        <set-variable name="certify-as-tid" value="@(context.Request.Headers.GetValueOrDefault("x-ms-certify-as-tid",""))" />
+
+        <!-- If certify-as-tid is empty, use user tid -->
+        <choose>
+            <when condition="@(string.IsNullOrEmpty((string)context.Variables["certify-as-tid"]))">
+                <set-variable name="certify-as-tid" value="@($"{((JObject)context.Variables["user"])["oauthProvider"]}:{((JObject)context.Variables["user"])["tid"]}")" />
+            </when>
+        </choose>
+
+        <!-- Set tenant-context -->
+        <set-variable name="tenant-context" value="@{
+            var user = (JObject)context.Variables["user"];
+            var tenantContexts = user["tenantContexts"];
+            var activeContext = (JObject)tenantContexts.FirstOrDefault(t => (string)t["tid"] == (string)context.Variables["certify-as-tid"]) ?? new JObject();
+            activeContext.Add("certifyAs", new JArray(tenantContexts.Where(t => t != activeContext)));
+            return activeContext;
+        }" />
+    </inbound>
+    <backend>
+        <forward-request />
+    </backend>
+    <outbound />
+    <on-error />
+</policies>

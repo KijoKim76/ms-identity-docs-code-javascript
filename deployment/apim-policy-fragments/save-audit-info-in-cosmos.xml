@@ -1,0 +1,71 @@
+<!--
+    This fragment will save the audit information in cosmos.
+
+    Input:
+        (string)context.Variables["certify-as-tid"]
+        (string)context.Variables["traceparent"]
+        (JObject)context.Variables["user"]
+        {
+          "oauthProvider": ...
+          "uid": ...
+          "tid": ...
+        }
+-->
+<fragment>
+    <!-- Send request to cosmosdb to retrive tenant context -->
+    <send-request response-variable-name="tenant-audits">
+        <set-url>@($"{context.Variables["cosmosdb-endpoint"]}/dbs/provenance/colls/audits/docs")</set-url>
+        <set-method>POST</set-method>
+
+        <set-header name="x-ms-documentdb-partitionkey" exists-action="override">
+            <value>@($"[\"{context.Variables["certify-as-tid"]}\"]")</value>
+        </set-header>
+
+        <set-header name="Authorization" exists-action="override">
+            <value>@("type=aad&ver=1.0&sig=" + context.Variables["msi-access-token-for-cosmos-db"])</value>
+        </set-header>
+
+        <set-header name="x-ms-version" exists-action="override">
+            <value>2018-12-31</value>
+        </set-header>
+
+        <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+        </set-header>
+
+        <set-body>
+          @{
+              var user = (JObject)context.Variables["user"];
+              var obj = new JObject();
+              obj["id"] = Guid.NewGuid().ToString();
+              obj["tid"] = (string)context.Variables["certify-as-tid"];
+              obj["operation"] = "sign";
+              obj["operator-uid"] = (string)user["uid"];
+              obj["operator-tid"] = $"{user["oauthProvider"]}:{user["tid"]}";
+              obj["traceparent"] = (string)context.Variables["traceparent"];
+              obj["timestamp"] = DateTime.UtcNow.ToString("o");
+              return JsonConvert.SerializeObject(obj);
+          }
+        </set-body>
+    </send-request>
+
+    <!-- For unsuccess returns from cosmosdb, treat it as 500 error -->
+    <choose>
+        <when condition="@(((IResponse)context.Variables["tenant-audits"]).StatusCode < 200 || ((IResponse)context.Variables["tenant-audits"]).StatusCode > 299)">
+            <trace source="sign" severity="error">
+              <message>@($"Cosmosdb for audits returns error code: {((IResponse)context.Variables["tenant-audits"]).StatusCode}, message: {((IResponse)context.Variables["tenant-audits"]).Body.As<String>()}")</message>
+            </trace>
+            <return-response>
+                <set-status code="500" reason="Internal Server Error" />
+                <set-header name="x-ms-error" exists-action="append">
+                    <value>@($"Internal server error when audits (sub status code: {((IResponse)context.Variables["tenant-audits"]).StatusCode})")</value>
+                </set-header>
+            </return-response>
+        </when>
+        <otherwise>
+            <trace source="sign" severity="information">
+                <message>@($"Sign for {context.Variables["certify-as-tid"]} by {((JObject)context.Variables["user"])["uid"]} from {((JObject)context.Variables["user"])["tid"]}")</message>
+            </trace>
+        </otherwise>
+    </choose>
+</fragment>

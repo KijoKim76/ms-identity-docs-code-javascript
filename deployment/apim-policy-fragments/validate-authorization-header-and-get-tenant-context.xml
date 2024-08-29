@@ -1,0 +1,246 @@
+<!--
+    This fragment will validate the authorization header and extract the tenant context from cosmosdb.
+    If authorization header validation failed, will send error response to client directly.
+
+    Input:
+        context.Headers.x-ms-oauth-provider
+        context.Headers.Authorization
+    Output:
+        (JObject)context.Variables["user"]
+        {
+          "oauthProvider": ...
+          "uid": ...
+          "tid": ...
+          "tenantContexts": [...]
+        }
+-->
+<fragment>
+    <!-- Extract tenant contentcredentials account (tid) -->
+    <!-- Process for different oauth provider, verify token is valid -->
+    <choose>
+        <!-- OAuth provider is google -->
+        <when condition="@(context.Request.Headers.GetValueOrDefault("x-ms-oauth-provider","") == "google")">
+            <set-variable name="oauth-provider" value="google" />
+
+            <trace source="all.apis.policy" severity="information">
+                <message>@($"{context.Request.Headers.GetValueOrDefault("x-ms-oauth-provider","")} token can't be used.")</message>
+            </trace>
+            
+            <return-response>
+                <set-status code="401" reason="Unauthorized" />
+                <set-header name="x-ms-error" exists-action="append">
+                  <value>@($"{context.Request.Headers.GetValueOrDefault("x-ms-oauth-provider","")} token can't be used.")</value>
+                </set-header>
+            </return-response>
+        </when>
+
+        <!-- OAuth provider is aad for other cases -->
+        <otherwise>
+            <set-variable name="oauth-provider" value="aad" />
+
+            <!-- Extract tid from the token -->
+            <set-variable name="tid" value="@(context.Request.Headers.GetValueOrDefault("Authorization","").AsJwt()?.Claims.GetValueOrDefault("tid", ""))" />
+            <trace source="all.apis.policy" severity="information">
+              <message>@($"Received tid from aad: {context.Variables["tid"]}")</message>
+            </trace>
+
+            <!-- Make sure tid exists -->
+            <choose>
+                <when condition="@(string.IsNullOrEmpty((string)context.Variables["tid"]))">
+                    <return-response>
+                        <set-status code="401" reason="Unauthorized" />
+                        <set-header name="x-ms-error" exists-action="append">
+                            <value>Tenant identifier is missing</value>
+                        </set-header>
+                    </return-response>
+              </when>
+            </choose>
+
+            <!-- Validate this token -->
+            <!-- __AAD_APPLICATION_CLIENT_ID__REPLACEMENT__, apim_application_client_id,  -->
+            <validate-azure-ad-token tenant-id="@((string)context.Variables["tid"])">
+                <backend-application-ids>
+                    <application-id>42dd6dfb-42b3-450e-9e77-1fc601f9de59</application-id>
+                </backend-application-ids>
+                <audiences>
+                    <audience>42dd6dfb-42b3-450e-9e77-1fc601f9de59</audience>
+                </audiences>
+                <required-claims>
+                    <claim name="oid" />
+                </required-claims>
+            </validate-azure-ad-token>
+
+            <!-- Get the oid from the token -->
+            <set-variable name="oid" value="@(context.Request.Headers.GetValueOrDefault("Authorization","").AsJwt().Claims["oid"].FirstOrDefault())" />
+
+            <!-- Set uid as the oid-->
+            <set-variable name="uid" value="@($"aad:oid:{context.Variables["oid"]}")" />
+        </otherwise>
+    </choose>
+
+    <!-- Token has been verified. Now, let's verify the user has the permission to certify. -->
+
+    <!-- Send request to cosmosdb to retrieve tenant context -->
+    <send-request response-variable-name="tenant-contexts">
+        <set-url>@($"{(string)context.Variables["cosmosdb-endpoint"]}/dbs/provenance/colls/contexts/docs")</set-url>
+        <set-method>POST</set-method>
+
+        <set-header name="x-ms-documentdb-isquery" exists-action="override">
+            <value>True</value>
+        </set-header>
+
+        <set-header name="x-ms-documentdb-query-enablecrosspartition" exists-action="override">
+            <value>True</value>
+        </set-header>
+
+        <set-header name="Authorization" exists-action="override">
+            <value>@("type=aad&ver=1.0&sig=" + context.Variables["msi-access-token-for-cosmos-db"])</value>
+        </set-header>
+
+        <set-header name="x-ms-version" exists-action="override">
+            <value>2018-12-31</value>
+        </set-header>
+
+        <set-header name="Content-Type" exists-action="override">
+            <value>application/query+json</value>
+        </set-header>
+
+        <set-body>
+          @{
+            return string.Format(
+                "{{\"query\":\"select * from contexts where array_contains(contexts.delegatedCertifiers, {{ uid: @uid }}, true) or (contexts.id = @id and contexts.tid = @tid)\",\"parameters\":[{{\"name\":\"@uid\",\"value\":\"{0}\"}},{{\"name\":\"@id\",\"value\":\"{1}\"}}, {{\"name\":\"@tid\",\"value\":\"{2}:{1}\"}}]}}",
+                context.Variables["uid"], context.Variables["tid"], context.Variables["oauth-provider"]);
+          }
+        </set-body>
+    </send-request>
+
+    <!-- For unsuccess returns from cosmosdb, treat it as 500 error -->
+    <choose>
+        <when condition="@(((IResponse)context.Variables["tenant-contexts"]).StatusCode < 200 || ((IResponse)context.Variables["tenant-contexts"]).StatusCode > 299)">
+            <trace source="get-context-from-cosmosdb" severity="error">
+              <message>@($"Cosmosdb returns error code: {((IResponse)context.Variables["tenant-contexts"]).StatusCode}, message: {((IResponse)context.Variables["tenant-contexts"]).Body.As<String>()}")</message>
+            </trace>
+            <return-response>
+                <set-status code="500" reason="Internal Server Error" />
+                <set-header name="x-ms-error" exists-action="append">
+                    <value>@($"Internal server error when getting tenant information (sub status code: {((IResponse)context.Variables["tenant-contexts"]).StatusCode})")</value>
+                </set-header>
+            </return-response>
+        </when>
+    </choose>
+
+    <!-- Decode the result -->
+    <set-variable name="tenant-contexts" value="@((JArray)JObject.Parse(((IResponse)context.Variables["tenant-contexts"]).Body.As<String>())["Documents"])" />
+
+    <!-- Now for different oauth provider, verify whether the user has permission to certify. -->
+    <set-variable name="is-tenant-certifier" value="false" />
+    <choose>
+        <!-- If user doesn't have self tenant (which tenant has the same tid as the user) or user exists in self tenant's delegatedCertifiers list, treat this user as certifier role. -->
+        <when condition="@{
+          var tenants = (JArray)context.Variables["tenant-contexts"];
+          var selfTenant = tenants.FirstOrDefault(t => (string)t["tid"] == $"{(string)context.Variables["oauth-provider"]}:{(string)context.Variables["tid"]}");
+          return selfTenant == null || selfTenant["delegatedCertifiers"]?.Any(t => (string)t["uid"] == (string)context.Variables["uid"]) == true;
+        }">
+            <set-variable name="is-tenant-certifier" value="true" />
+        </when>
+
+        <!-- For google oauth, we need verify user exsits in certifiers group. -->
+        <when condition="@((string)context.Variables["oauth-provider"] == "google")">
+            <!-- Get the certifiers group from the tenant context information -->
+            <set-variable name="certifiers-group" value="@{
+              /* find out the context by user's tid */
+              var tenants = (JArray)context.Variables["tenant-contexts"];
+              var tenant = tenants.Where(t => (string)t["tid"] == $"google:{(string)context.Variables["tid"]}").FirstOrDefault();
+
+              /* Return the certifiersGroup for this context */
+              return tenant != null ? (string)tenant["certifiersGroup"] : string.Empty;
+            }" />
+
+            <!-- Make sure user exists in this group if certifiers-group exists-->
+            <choose>
+                <when condition="@(!string.IsNullOrEmpty((string)context.Variables["certifiers-group"]))">
+                    <send-request response-variable-name="is-user-in-certifiers-group">
+                        <set-url>@($"https://admin.googleapis.com/admin/directory/v1/groups/{context.Variables["certifiers-group"]}/hasMember/{context.Variables["user-id"]}") </set-url>
+                        <set-method>GET</set-method>
+                        <set-header name="Authorization" exists-action="override">
+                            <value>@(context.Request.Headers.GetValueOrDefault("Authorization", ""))</value>
+                        </set-header>
+                    </send-request>
+
+                    <choose>
+                        <!-- If it is success, check isMember result -->
+                        <when condition="@(((IResponse)context.Variables["is-user-in-certifiers-group"]).StatusCode == 200)">
+                            <choose>
+                                <when condition="@((bool)((IResponse)context.Variables["is-user-in-certifiers-group"]).Body.As<JObject>()["isMember"])">
+                                    <set-variable name="is-tenant-certifier" value="true" />
+                                </when>
+                            </choose>
+                        </when>
+                        <!-- Treat it as 500 error if it is a bad request or Google API returns a 500  -->
+                        <when condition="@(((IResponse)context.Variables["is-user-in-certifiers-group"]).StatusCode == 400 || ((IResponse)context.Variables["is-user-in-certifiers-group"]).StatusCode >= 500)">
+                            <trace source="all.apis.policy" severity="error">
+                                <message>@($"https://admin.googleapis.com/admin/directory/v1/groups/{context.Variables["certifiers-group"]}/hasMember returns error: {((IResponse)context.Variables["is-user-in-certifiers-group"]).StatusCode}, message: {((IResponse)context.Variables["is-user-in-certifiers-group"]).Body.As<String>()}")</message>
+                            </trace>
+                            <return-response>
+                                <set-status code="500" reason="Internal Server Error" />
+                                <set-header name="x-ms-error" exists-action="append">
+                                    <value>@($"Internal server error when querying group (sub status code: {((IResponse)context.Variables["is-user-in-certifiers-group"]).StatusCode})")</value>
+                                </set-header>
+                            </return-response>
+                        </when>
+                        <!-- Treat everything else as a bad request  -->
+                        <otherwise>
+                            <trace source="all.apis.policy" severity="error">
+                                <message>@($"https://admin.googleapis.com/admin/directory/v1/groups/{context.Variables["certifiers-group"]}/hasMember returns error: {((IResponse)context.Variables["is-user-in-certifiers-group"]).StatusCode}, message: {((IResponse)context.Variables["is-user-in-certifiers-group"]).Body.As<String>()}")</message>
+                            </trace>
+                            <return-response>
+                                <set-status code="400" reason="Bad Request" />
+                                <set-header name="x-ms-error" exists-action="append">
+                                    <value>@($"Bad request when querying group (sub status code: {((IResponse)context.Variables["is-user-in-certifiers-group"]).StatusCode})")</value>
+                                </set-header>
+                            </return-response>
+                        </otherwise>
+                    </choose>
+                </when>
+            </choose>
+        </when>
+
+        <!-- For aad, check user has certifier role -->
+        <otherwise>
+            <choose>
+                <when condition="@(context.Request.Headers.GetValueOrDefault("Authorization","").AsJwt().Claims.ContainsKey("roles") && context.Request.Headers.GetValueOrDefault("Authorization","").AsJwt().Claims["roles"].Contains("Certifier"))">
+                    <set-variable name="is-tenant-certifier" value="true" />
+                </when>
+            </choose>
+        </otherwise>
+    </choose>
+
+    <!-- User doesn't have the certify role, remove its context from the contexts list -->
+    <choose>
+        <when condition="@((string)context.Variables["is-tenant-certifier"] != "true")">
+            <set-variable name="tenant-contexts" value="@(new JArray(((JArray)context.Variables["tenant-contexts"]).Where(t => (string)t["tid"] != $"{(string)context.Variables["oauth-provider"]}:{(string)context.Variables["tid"]}")))" />
+        </when>
+    </choose>
+
+    <!-- If there is no documents, return 403 -->
+    <choose>
+        <when condition="@(((JArray)context.Variables["tenant-contexts"]).Count() == 0)">
+            <return-response>
+                <set-status code="403" reason="Forbidden" />
+                <set-header name="x-ms-error" exists-action="append">
+                    <value>User can't certify in any organization</value>
+                </set-header>
+            </return-response>
+        </when>
+    </choose>
+
+    <!-- output -->
+    <set-variable name="user" value="@{
+        var output = new JObject();
+        output.Add("oauthProvider", (string)context.Variables["oauth-provider"]);
+        output.Add("uid", (string)context.Variables["uid"]);
+        output.Add("tid", (string)context.Variables["tid"]);
+        output.Add("tenantContexts", (JArray)context.Variables["tenant-contexts"]);
+        return output;
+    }"/>
+</fragment>

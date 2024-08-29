@@ -1,0 +1,19 @@
+<fragment>
+    <cors allow-credentials="true" terminate-unmatched-request="true">
+        <allowed-origins>
+            <origin>http://localhost:3000</origin>
+        </allowed-origins>
+        <allowed-methods preflight-result-max-age="300">
+            <method>GET</method>
+            <method>OPTIONS</method>
+        </allowed-methods>
+        <allowed-headers>
+            <header>Content-Type</header>
+            <header>Authorization</header>
+            <header>Accept</header>
+        </allowed-headers>
+        <expose-headers>
+            <header>x-ms-error</header>
+        </expose-headers>
+    </cors>
+</fragment>
