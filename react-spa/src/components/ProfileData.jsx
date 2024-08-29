@@ -14,3 +14,17 @@ export const ProfileData = (props) => {
         </div>
     );
 };
+
+
+/**
+ * Renders information about the user obtained from MS Graph
+ * @param props 
+ */
+export const AuthZData = (props) => {
+    return (
+        <div id="authz-div">
+            <p><strong>TID: </strong> {props.authZData.tid}</p>
+            <p><strong>OID: </strong> {props.authZData.oid}</p>
+        </div>
+    );
+};

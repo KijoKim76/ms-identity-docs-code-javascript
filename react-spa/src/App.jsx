@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 
 import { PageLayout } from './components/PageLayout';
 import { edgefieldAuthRequest, loginRequest} from './authConfig';
-import { callMsGraph } from './graph';
-import { ProfileData } from './components/ProfileData';
+import { callEdgefieldAPI, callMsGraph } from './graph';
+import { AuthZData, ProfileData } from './components/ProfileData';
 
 
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from '@azure/msal-react';
@@ -17,8 +17,13 @@ import Button from 'react-bootstrap/Button';
 const ProfileContent = () => {
     const { instance, accounts } = useMsal();
     const [graphData, setGraphData] = useState(null);
+    const [authZData, saveResponse] = useState(null);
 
     function RequestProfileData() {
+        
+        //reset data
+        saveResponse(null);
+
         // Silently acquires an access token which is then attached to a request for MS Graph data
         instance
             .acquireTokenSilent({
@@ -29,17 +34,23 @@ const ProfileContent = () => {
                 callMsGraph(response.accessToken).then((response) => setGraphData(response));
             });
     }
-
     
     function RequestEdgeField() {
+
+        setGraphData(null);
+        
         // Silently acquires an access token which is then attached to a request for MS Graph data
         instance
             .acquireTokenSilent({
-                ...loginRequest,
+                ...edgefieldAuthRequest,
                 account: accounts[0],
             })
-            .then((response) => {
-                callMsGraph(response.accessToken).then((response) => setGraphData(response));
+            .then((response) => {                
+                console.log(response.accessToken);
+                callEdgefieldAPI(response.accessToken).then((response) => {
+                    console.log(response);
+                    saveResponse(response);
+                });
             });
     }
 
@@ -49,10 +60,21 @@ const ProfileContent = () => {
             {graphData ? (
                 <ProfileData graphData={graphData} />
             ) : (
-                <>
+                <>                
+                <h6 className="card-title">AuthN needed </h6>  
                 <Button variant="secondary" onClick={RequestProfileData}>
                     Request Profile
                 </Button>
+                </>
+            )}         
+
+            <p/>
+
+            {authZData ? (
+                <AuthZData authZData={authZData} />
+            ) : (          
+                <>                
+                <h6 className="card-title">AuthZ needed</h6>    
                 <Button variant="primary" onClick={RequestEdgeField}>
                     Edgefield Access Permission Check
                 </Button>
