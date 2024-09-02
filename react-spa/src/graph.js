@@ -46,10 +46,10 @@ export async function callEdgefieldAPI(accessToken) {
     const headers = new Headers();
     const bearer = `Bearer ${accessToken}`;
 
+    headers.append("Origin", "https://aipm-epso-authtest01.azure-api.net");
     headers.append("Authorization", bearer);
     //headers.append("Host", "aipm-epso-authtest01.azure-api.net");
     //headers.append("Ocp-Apim-Subscription-Key", "2e02b96366324e4e8c7cf58e0b0c7a27");
-    headers.append("Origin", "http://localhost:3000");
     
     const options = {
         method: "GET",
@@ -62,7 +62,7 @@ export async function callEdgefieldAPI(accessToken) {
         console.log(`${key}: ${value}`);
     });
 
-    fetch('https://aipm-epso-authtest01.azure-api.net/api/', options)
+    fetch('https://aipm-epso-authtest01.azure-api.net/demo/topics', options)
     .then(response => response.json())
     .then(data => {
         console.log(data);

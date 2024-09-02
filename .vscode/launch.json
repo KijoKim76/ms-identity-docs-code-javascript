@@ -10,6 +10,9 @@
             "name": "Launch chrome against localhost",
             "url": "http://localhost:3000",
             "webRoot": "${workspaceFolder}/react-spa/src"
+            "skipFiles": [
+                "chrome-error://*"
+            ]
         }
     ]
 }
