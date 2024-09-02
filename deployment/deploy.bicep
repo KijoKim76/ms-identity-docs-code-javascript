@@ -34,21 +34,24 @@ param skuCount int = 1
 param tags object = {}
 
 @description('The name of the API')
-param apiName string = 'test-token-validation'
+param apiName string = 'epso-token-validation'
 
 @description('The name of the API')
-param apiDisplayName string = 'Test token validation'
+param apiDisplayName string = 'EPSO token validation'
 
 var dummyBackendUrl = 'https://httpbin.org/'
-var apiPath = 'api'
+var apiPath = 'demo'
+
 // Policy for the API that uses the policy fragment
+// Refer following how to avoid cors errors with APIM
+// https://techcommunity.microsoft.com/t5/azure-paas-blog/how-to-troubleshoot-cors-error-in-azure-api-management-service/ba-p/2241695
 var apiLevelPolicyXml = '''
 <policies>
   <!-- Throttle, authorize, validate, cache, or transform the requests -->
   <inbound>
-    <base />
     <include-fragment fragment-id="EnableCORS" />
     <include-fragment fragment-id="ValidateEntraIdToken" />
+    <base />
   </inbound>
   <!-- Control if and how the requests are forwarded to services  -->
   <backend>

@@ -82,7 +82,7 @@
 
     <!-- Send request to cosmosdb to retrieve tenant context -->
     <send-request response-variable-name="tenant-contexts">
-        <set-url>@($"{(string)context.Variables["cosmosdb-endpoint"]}/dbs/provenance/colls/contexts/docs")</set-url>
+        <set-url>@($"{(string)context.Variables["cosmosdb-endpoint"]}/dbs/ToDoList/colls/Items/docs")</set-url>
         <set-method>POST</set-method>
 
         <set-header name="x-ms-documentdb-isquery" exists-action="override">
@@ -121,7 +121,7 @@
               <message>@($"Cosmosdb returns error code: {((IResponse)context.Variables["tenant-contexts"]).StatusCode}, message: {((IResponse)context.Variables["tenant-contexts"]).Body.As<String>()}")</message>
             </trace>
             <return-response>
-                <set-status code="500" reason="Internal Server Error" />
+                <set-status code="500" reason="Internal Server Error - Log1 " />
                 <set-header name="x-ms-error" exists-action="append">
                     <value>@($"Internal server error when getting tenant information (sub status code: {((IResponse)context.Variables["tenant-contexts"]).StatusCode})")</value>
                 </set-header>
@@ -182,7 +182,7 @@
                                 <message>@($"https://admin.googleapis.com/admin/directory/v1/groups/{context.Variables["certifiers-group"]}/hasMember returns error: {((IResponse)context.Variables["is-user-in-certifiers-group"]).StatusCode}, message: {((IResponse)context.Variables["is-user-in-certifiers-group"]).Body.As<String>()}")</message>
                             </trace>
                             <return-response>
-                                <set-status code="500" reason="Internal Server Error" />
+                                <set-status code="500" reason="Internal Server Error Google" />
                                 <set-header name="x-ms-error" exists-action="append">
                                     <value>@($"Internal server error when querying group (sub status code: {((IResponse)context.Variables["is-user-in-certifiers-group"]).StatusCode})")</value>
                                 </set-header>

@@ -7,13 +7,13 @@
         </trace>
 
         <!-- Set cosmosdb endpoint 
-            __COSMOSDB_ENDPOINT__ : https://epso-apimauth-cosmosdb-test.documents.azure.com:443/
+            __COSMOSDB_ENDPOINT__ : https://epso-apimauth-cosmosdb-test.documents.azure.com/  DB name ToDoList and collection name it Items
             __APIM_USER_IDENTITY_CLIENT_ID__ : 823cce1b-17d1-4a0a-bf8d-8d65c85df337, epso-apimauth-umid, User managed identity - create one and add to APIM 
         -->
-        <set-variable name="cosmosdb-endpoint" value="__COSMOSDB_ENDPOINT__" />
+        <set-variable name="cosmosdb-endpoint" value="https://epso-apimauth-cosmosdb-test.documents.azure.com" />
 
         <!-- Get access token of APIM's user identity to access cosmosdb -->
-        <authentication-managed-identity resource="@((string)context.Variables["cosmosdb-endpoint"])" client-id="__APIM_USER_IDENTITY_CLIENT_ID__" output-token-variable-name="msi-access-token-for-cosmos-db" />
+        <authentication-managed-identity resource="@((string)context.Variables["cosmosdb-endpoint"])" client-id="823cce1b-17d1-4a0a-bf8d-8d65c85df337" output-token-variable-name="msi-access-token-for-cosmos-db" />
 
         <!-- Calculate the hash value of the token, save it as a cache key -->
         <set-variable name="_user_cache_key" value="@(Convert.ToBase64String(SHA512.Create().ComputeHash(Encoding.UTF8.GetBytes(context.Request.Headers.GetValueOrDefault("Authorization", "")))))" />
