@@ -49,9 +49,8 @@ export async function callEdgefieldAPI(accessToken) {
     headers.append("Authorization", bearer);
     //headers.append("Host", "aipm-epso-authtest01.azure-api.net");
     //headers.append("Ocp-Apim-Subscription-Key", "2e02b96366324e4e8c7cf58e0b0c7a27");
-    headers.append("Access-Control-Allow-Origin", "http://localhost:3000");
+    headers.append("Origin", "http://localhost:3000");
     
-
     const options = {
         method: "GET",
         headers: headers
@@ -63,23 +62,32 @@ export async function callEdgefieldAPI(accessToken) {
         console.log(`${key}: ${value}`);
     });
 
+    fetch('https://aipm-epso-authtest01.azure-api.net/api/', options)
+    .then(response => response.json())
+    .then(data => {
+        console.log(data);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+    });
+
     
     // return fetch(edgeAuthZConfig.resourceEndpoint, options)
     //     .then(response => response.json())
     //     .catch(error => console.log(error));
-    console.log('Resource Endpoint:', edgeAuthZConfig.resourceEndpoint)
-    fetch(edgeAuthZConfig.resourceEndpoint, options)
-        .then(response => {
-            // Log the response headers
-            console.log('Response Headers:');
-            response.headers.forEach((value, key) => {
-                console.log(`${key}: ${value}`);
-            });
+    // console.log('Resource Endpoint:', edgeAuthZConfig.resourceEndpoint)
+    // fetch(edgeAuthZConfig.resourceEndpoint, options)
+    //     .then(response => {
+    //         // Log the response headers
+    //         console.log('Response Headers:');
+    //         response.headers.forEach((value, key) => {
+    //             console.log(`${key}: ${value}`);
+    //         });
 
-            return response;
-        })
-        .catch(error => {
-            console.log(error);
-        });        
+    //         return response;
+    //     })
+    //     .catch(error => {
+    //         console.log(error);
+    //     });        
 
 }
