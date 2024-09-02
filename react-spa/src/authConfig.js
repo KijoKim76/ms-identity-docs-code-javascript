@@ -69,10 +69,10 @@ export const graphConfig = {
     graphMeEndpoint: "https://graph.microsoft.com/v1.0/me",
 };
 
-export const edgefieldAuthRequest = {
+export const edgeAuthZRequest = {
     scopes: ["api://42dd6dfb-42b3-450e-9e77-1fc601f9de59/Epso.User.Global"]
 };
 
-export const edgefieldAuthConfig = {
-    edgefieldHomeEndpoint: "https://aipm-epso-authtest01.azure-api.net/api/edgefield-home",
+export const edgeAuthZConfig = {
+    resourceEndpoint: "https://aipm-epso-authtest01.azure-api.net/demo/topics",
 };

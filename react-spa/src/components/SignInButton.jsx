@@ -1,6 +1,6 @@
 import React from "react";
 import { useMsal } from "@azure/msal-react";
-import { loginRequest } from "../authConfig";
+import { edgeAuthZRequest, loginRequest } from "../authConfig";
 import DropdownButton from "react-bootstrap/DropdownButton";
 import Dropdown from "react-bootstrap/Dropdown";
 
@@ -13,10 +13,13 @@ export const SignInButton = () => {
     const handleLogin = (loginType) => {
         if (loginType === "popup") {
             instance.loginPopup(loginRequest).catch(e => {
+            //instance.loginPopup(edgeAuthZRequest).catch(e => {                
+                console.log("Logon popup fail...");
                 console.log(e);
             });
         } else if (loginType === "redirect") {
             instance.loginRedirect(loginRequest).catch(e => {
+            //instance.loginRedirect(edgeAuthZRequest).catch(e => {
                 console.log(e);
             });
         }

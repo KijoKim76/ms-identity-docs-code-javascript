@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
 import { PageLayout } from './components/PageLayout';
-import { edgefieldAuthRequest, loginRequest} from './authConfig';
+import { edgeAuthZRequest, loginRequest} from './authConfig';
 import { callEdgefieldAPI, callMsGraph } from './graph';
 import { AuthZData, ProfileData } from './components/ProfileData';
 
@@ -37,19 +37,19 @@ const ProfileContent = () => {
     
     function RequestEdgeField() {
 
-        setGraphData(null);
+        //setGraphData(null);
         
-        // Silently acquires an access token which is then attached to a request for MS Graph data
+        // Silently acquires an access token which is then attached to a request for Edgefield APIM
         instance
             .acquireTokenSilent({
-                ...edgefieldAuthRequest,
+                ...edgeAuthZRequest,
                 account: accounts[0],
             })
             .then((response) => {                
                 console.log(response.accessToken);
                 callEdgefieldAPI(response.accessToken).then((response) => {
                     console.log(response);
-                    saveResponse(response);
+                    //saveResponse(response);
                 });
             });
     }
