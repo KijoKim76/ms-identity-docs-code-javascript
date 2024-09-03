@@ -22,16 +22,141 @@
         <when condition="@(context.Request.Headers.GetValueOrDefault("x-ms-oauth-provider","") == "google")">
             <set-variable name="oauth-provider" value="google" />
 
-            <trace source="all.apis.policy" severity="information">
-                <message>@($"{context.Request.Headers.GetValueOrDefault("x-ms-oauth-provider","")} token can't be used.")</message>
-            </trace>
-            
-            <return-response>
-                <set-status code="401" reason="Unauthorized" />
-                <set-header name="x-ms-error" exists-action="append">
-                  <value>@($"{context.Request.Headers.GetValueOrDefault("x-ms-oauth-provider","")} token can't be used.")</value>
+            <!-- The token is access token, we need verify the audience infroamtion of the access token. -->
+            <send-request response-variable-name="token-info">
+                <set-url>https://www.googleapis.com/oauth2/v1/tokeninfo</set-url>
+                <set-method>GET</set-method>
+                <set-header name="Authorization" exists-action="override">
+                    <value>@(context.Request.Headers.GetValueOrDefault("Authorization", ""))</value>
                 </set-header>
-            </return-response>
+            </send-request>
+
+            <!-- Return error if not success -->
+            <choose>
+                <when condition="@(((IResponse)context.Variables["token-info"]).StatusCode != 200)">
+                    <trace source="all.apis.policy" severity="error">
+                        <message>@($"https://www.googleapis.com/oauth2/v1/tokeninfo returns error: {((IResponse)context.Variables["token-info"]).StatusCode}, message: {((IResponse)context.Variables["token-info"]).Body.As<String>()}")</message>
+                    </trace>
+                    <return-response>
+                        <set-status code="401" reason="Unauthorized" />
+                        <set-header name="x-ms-error" exists-action="append">
+                            <value>@($"Token info is invalid (sub status code: {((IResponse)context.Variables["token-info"]).StatusCode})")</value>
+                        </set-header>
+                    </return-response>
+                </when>
+            </choose>
+
+             <!-- Save the token info -->
+            <set-variable name="token-info" value="@(((IResponse)context.Variables["token-info"]).Body.As<JObject>())" />
+
+            <!-- Save the audience info -->
+            <set-variable name="token-audience" value="@((string)((JObject)context.Variables["token-info"])["audience"])" />
+            <trace source="all.apis.policy" severity="information">
+                <message>@($"google token audience: {context.Variables["token-audience"]}")</message>
+            </trace>
+
+            <!-- Return error if audience is not expected. -->
+            <choose>
+                <when condition="@{
+                  var aud = (string)context.Variables["token-audience"];
+                  return aud != "1081265737193-7911sfv67soaheaucp3s55pmpsu852ks.apps.googleusercontent.com" &&
+                         aud != "1081265737193-qpq29rjcvupldu8qjvi5s50ae0vct9nf.apps.googleusercontent.com" &&
+                         aud != "1081265737193-1nfo1rf4qqptou9n5m553rldndiai50p.apps.googleusercontent.com" &&
+                         aud != "233216295635-un4v5b14oljev2k4r1vgaljdgloij8qp.apps.googleusercontent.com" &&
+                         aud != "233216295635-v19iq2992l8gc649vrnpc5hqorbpdh09.apps.googleusercontent.com" &&
+                         aud != "233216295635-k326im8h21kcvo8mrvkfpu8dhqvnvneh.apps.googleusercontent.com";
+                }">
+                    <return-response>
+                        <set-status code="401" reason="Unauthorized" />
+                        <set-header name="x-ms-error" exists-action="append">
+                            <value>@($"Token audience is invalid")</value>
+                        </set-header>
+                    </return-response>
+                </when>
+            </choose>
+
+            <!-- The token is access token, we need invoke the api to get the user information -->
+            <send-request response-variable-name="user-info">
+                <set-url>https://www.googleapis.com/oauth2/v3/userinfo</set-url>
+                <set-method>GET</set-method>
+                <set-header name="Authorization" exists-action="override">
+                    <value>@(context.Request.Headers.GetValueOrDefault("Authorization", ""))</value>
+                </set-header>
+            </send-request>
+
+            <!-- Return error if not success -->
+            <choose>
+              <when condition="@(((IResponse)context.Variables["user-info"]).StatusCode != 200)">
+                  <trace source="all.apis.policy" severity="error">
+                      <message>@($"https://www.googleapis.com/oauth2/v3/userinfo returns error: {((IResponse)context.Variables["user-info"]).StatusCode}, message: {((IResponse)context.Variables["user-info"]).Body.As<String>()}")</message>
+                  </trace>
+                  <return-response>
+                      <set-status code="401" reason="Unauthorized" />
+                      <set-header name="x-ms-error" exists-action="append">
+                          <value>@($"Token is invalid (sub status code: {((IResponse)context.Variables["user-info"]).StatusCode})")</value>
+                      </set-header>
+                  </return-response>
+              </when>
+            </choose>
+
+            <!-- Save the return object -->
+            <set-variable name="user-info" value="@(((IResponse)context.Variables["user-info"]).Body.As<JObject>())" />
+
+            <!-- Save the user id -->
+            <set-variable name="user-id" value="@((string)((JObject)context.Variables["user-info"])["sub"])" />
+
+            <!-- Make sure user id exists -->
+            <choose>
+                <when condition="@(string.IsNullOrEmpty((string)context.Variables["user-id"]))">
+                    <return-response>
+                        <set-status code="401" reason="Unauthorized" />
+                        <set-header name="x-ms-error" exists-action="append">
+                            <value>User identifier is missing</value>
+                        </set-header>
+                    </return-response>
+              </when>
+            </choose>
+
+            <!--
+                Use hd as the tid if hd existed otherwise, use 'google-personal-account' as tid.
+                For security, if tid is not 'google-personal-account' then email must exists,
+                email_verified must be true, and email domain must be the sub domain of the hd.
+            -->
+            <set-variable name="tid" value="@{
+                var user = (JObject)context.Variables["user-info"];
+                var hd = (string)user["hd"];
+                if (string.IsNullOrEmpty(hd)) {
+                    /* hd doesn't exist, use google-personal-account as tid. */
+                    return "google-personal-account";
+                }
+
+                /* get email, email_verified field. */
+                var email = (string)user["email"];
+                var emailVerified = (bool?)user["email_verified"] == true;
+
+                /* email must exist, email_verified must be true, email domain must be the sub domain of the hd. */
+                return !string.IsNullOrEmpty(email) &&
+                       emailVerified &&
+                       (email.EndsWith($"@{hd}") || email.EndsWith($".{hd}")) ? hd : string.Empty;
+            }" />
+            <trace source="all.apis.policy" severity="information">
+                <message>@($"Received tid from google: {context.Variables["tid"]}")</message>
+            </trace>
+
+            <!-- Make sure tid exists -->
+            <choose>
+                <when condition="@(string.IsNullOrEmpty((string)context.Variables["tid"]))">
+                    <return-response>
+                        <set-status code="401" reason="Unauthorized" />
+                        <set-header name="x-ms-error" exists-action="append">
+                            <value>Tenant domain is missing</value>
+                        </set-header>
+                    </return-response>
+              </when>
+            </choose>
+
+            <!-- Set uid as the user-id-->
+            <set-variable name="uid" value="@($"google:sub:{context.Variables["user-id"]}")" />
         </when>
 
         <!-- OAuth provider is aad for other cases -->
@@ -41,7 +166,7 @@
             <!-- Extract tid from the token -->
             <set-variable name="tid" value="@(context.Request.Headers.GetValueOrDefault("Authorization","").AsJwt()?.Claims.GetValueOrDefault("tid", ""))" />
             <trace source="all.apis.policy" severity="information">
-              <message>@($"Received tid from aad: {context.Variables["tid"]}")</message>
+              <message>@($"Received tid from tid: {context.Variables["tid"]}")</message>
             </trace>
 
             <!-- Make sure tid exists -->
@@ -75,6 +200,11 @@
 
             <!-- Set uid as the oid-->
             <set-variable name="uid" value="@($"aad:oid:{context.Variables["oid"]}")" />
+
+            <trace source="all.apis.policy" severity="information">
+              <message>@($"Received oid from oid: {context.Variables["oid"]}")</message>
+            </trace>
+
         </otherwise>
     </choose>
 
@@ -108,8 +238,8 @@
         <set-body>
           @{
             return string.Format(
-                "{{\"query\":\"select * from contexts where array_contains(contexts.delegatedCertifiers, {{ uid: @uid }}, true) or (contexts.id = @id and contexts.tid = @tid)\",\"parameters\":[{{\"name\":\"@uid\",\"value\":\"{0}\"}},{{\"name\":\"@id\",\"value\":\"{1}\"}}, {{\"name\":\"@tid\",\"value\":\"{2}:{1}\"}}]}}",
-                context.Variables["uid"], context.Variables["tid"], context.Variables["oauth-provider"]);
+                "{{\"query\":\"SELECT * FROM c WHERE c.oid = @oid AND c.tid = @tid\",\"parameters\":[{{\"name\":\"@oid\",\"value\":\"{0}\"}}, {{\"name\":\"@tid\",\"value\":\"{1}\"}}]}}",
+                context.Variables["oid"], context.Variables["tid"]);
           }
         </set-body>
     </send-request>
@@ -121,7 +251,7 @@
               <message>@($"Cosmosdb returns error code: {((IResponse)context.Variables["tenant-contexts"]).StatusCode}, message: {((IResponse)context.Variables["tenant-contexts"]).Body.As<String>()}")</message>
             </trace>
             <return-response>
-                <set-status code="500" reason="Internal Server Error - Log1 " />
+                <set-status code="500" reason="Internal Server Error - DB access errorLog1 " />
                 <set-header name="x-ms-error" exists-action="append">
                     <value>@($"Internal server error when getting tenant information (sub status code: {((IResponse)context.Variables["tenant-contexts"]).StatusCode})")</value>
                 </set-header>
@@ -228,7 +358,7 @@
             <return-response>
                 <set-status code="403" reason="Forbidden" />
                 <set-header name="x-ms-error" exists-action="append">
-                    <value>User can't certify in any organization</value>
+                    <value>User can't certify in any organization, no user account info</value>
                 </set-header>
             </return-response>
         </when>

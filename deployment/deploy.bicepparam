@@ -1,6 +1,6 @@
 using 'deploy.bicep'
 
-param apiMgmtName = 'aipm-epso-authtest01'
+param apiMgmtName = 'epso-sample-test'
 param publisherEmail = 'kijokim@microsoft.com'
 param publisherName = 'Contoso'
 param sku = 'Developer'

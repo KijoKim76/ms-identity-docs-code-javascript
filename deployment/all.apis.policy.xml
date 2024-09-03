@@ -43,6 +43,10 @@
             </otherwise>
         </choose>
 
+        <trace source="all.apis.policy" severity="information">
+            <message>@($"Line 47: , tid: {(string)((JObject)context.Variables["user"])["tid"]}")</message>
+        </trace>
+
         <!-- Dont need authentication header any more, to avoid this credential be forwared to backend, remove it. -->
         <set-header name="Authorization" exists-action="delete" />
 
@@ -64,6 +68,11 @@
             activeContext.Add("certifyAs", new JArray(tenantContexts.Where(t => t != activeContext)));
             return activeContext;
         }" />
+
+        <trace source="all.apis.policy" severity="information">
+          <message>@($"Line 69: Inbound completed")</message>
+        </trace>
+
     </inbound>
     <backend>
         <forward-request />

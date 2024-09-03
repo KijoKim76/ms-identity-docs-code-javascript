@@ -23,8 +23,10 @@ export const ProfileData = (props) => {
 export const AuthZData = (props) => {
     return (
         <div id="authz-div">
-            <p><strong>TID: </strong> {props.authZData.tid}</p>
-            <p><strong>OID: </strong> {props.authZData.oid}</p>
+            <textarea
+                value={props.authZData}
+                readOnly
+            ></textarea>
         </div>
     );
 };

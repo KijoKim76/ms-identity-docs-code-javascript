@@ -74,5 +74,7 @@ export const edgeAuthZRequest = {
 };
 
 export const edgeAuthZConfig = {
-    resourceEndpoint: "https://aipm-epso-authtest01.azure-api.net/demo/topics",
+    resourceEndpoint: "https://aipm-epso-authtest01.azure-api.net/demo/topics",    
+    //resourceEndpoint: "https://aipm-epso-authtest01.azure-api.net/api",
+    
 };

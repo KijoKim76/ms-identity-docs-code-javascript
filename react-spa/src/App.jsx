@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { PageLayout } from './components/PageLayout';
 import { edgeAuthZRequest, loginRequest} from './authConfig';
 import { callEdgefieldAPI, callMsGraph } from './graph';
-import { AuthZData, ProfileData } from './components/ProfileData';
+import { ProfileData } from './components/ProfileData';
 
 
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from '@azure/msal-react';
@@ -37,7 +37,7 @@ const ProfileContent = () => {
     
     function RequestEdgeField() {
 
-        //setGraphData(null);
+        setGraphData(null);
         
         // Silently acquires an access token which is then attached to a request for Edgefield APIM
         instance
@@ -47,10 +47,7 @@ const ProfileContent = () => {
             })
             .then((response) => {                
                 console.log(response.accessToken);
-                callEdgefieldAPI(response.accessToken).then((response) => {
-                    console.log(response);
-                    //saveResponse(response);
-                });
+                callEdgefieldAPI(response.accessToken).then((response) => saveResponse(response));
             });
     }
 
@@ -70,8 +67,16 @@ const ProfileContent = () => {
 
             <p/>
 
-            {authZData ? (
-                <AuthZData authZData={authZData} />
+            {authZData ? (   
+                <div className='dataContent'>
+                    <textarea 
+                        value={JSON.stringify(authZData, null, 2)} 
+                        readOnly 
+                        rows={20} 
+                        cols={200} 
+                        style={{ width: '100%', height: 'auto' }} 
+                    />
+                </div>
             ) : (          
                 <>                
                 <h6 className="card-title">AuthZ needed</h6>    
