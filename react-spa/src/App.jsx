@@ -72,7 +72,7 @@ const ProfileContent = () => {
                     <textarea 
                         value={JSON.stringify(authZData, null, 2)} 
                         readOnly 
-                        rows={20} 
+                        rows={10} 
                         cols={200} 
                         style={{ width: '100%', height: 'auto' }} 
                     />
